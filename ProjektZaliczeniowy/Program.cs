@@ -1,12 +1,21 @@
-﻿using Opc.UaFx;
+﻿using AzureDeviceSdkDemo.Device;
+using Microsoft.Azure.Devices.Client;
+using Opc.UaFx;
 using Opc.UaFx.Client;
 using Org.BouncyCastle.Security;
+using ProjektZaliczeniowy.Properties;
+using System.Resources;
+using System.Runtime.Versioning;
 
-using (var client = new OpcClient("opc.tcp://localhost:4840/"))
+
+internal class Program 
 {
-    //exception
-    client.Connect();
 
+    private static async Task Main(string[] args)  
+    {
+    //exception
+    //var client = new OpcClient("opc.tcp://localhost:4840/")
+    //client.Connect();
     /*
     OpcReadNode[] commands = new OpcReadNode[]
     {
@@ -33,20 +42,100 @@ using (var client = new OpcClient("opc.tcp://localhost:4840/"))
         Console.WriteLine(item.Value);
     }
     */
-    var node = client.BrowseNode(OpcObjectTypes.ObjectsFolder);
-    Browse(node);
-}
+        try
+        {
+            List<string> machinesIdList = new List<string>();
 
-Console.ReadLine();
+            using (var client = new OpcClient("opc.tcp://localhost:4840/"))
+            {
+                client.Connect();
+                var node = client.BrowseNode(OpcObjectTypes.ObjectsFolder);
+                findMachinesId(node, machinesIdList);
+                client.Disconnect();
 
-static void Browse(OpcNodeInfo node, int level = 0)
-{
-    Console.WriteLine("{0}{1}({2})",
-        new string('.', level * 4),
-        node.Attribute(OpcAttribute.DisplayName).Value,
-        node.NodeId);
-    level++;
+                using var deviceClient = DeviceClient.CreateFromConnectionString(Resources.connectionString, TransportType.Mqtt);
+                await deviceClient.OpenAsync();
+                var device = new VirtualDevice(deviceClient);
 
-    foreach (var childNode in node.Children())
-        Browse(childNode, level);
+                Task[] connectionTask = new Task[machinesIdList.Count - 1];
+                VirtualDevice[] devices = new VirtualDevice[machinesIdList.Count - 1];
+                DeviceClient[] deviceClients = new DeviceClient[machinesIdList.Count - 1];
+                OpcClient[] opcClient = new OpcClient[machinesIdList.Count - 1];
+
+                for (int i = 0; i < machinesIdList.Count - 1; i++)
+                {
+                    opcClient[i] = new OpcClient("opc.tcp://localhost:4840/");
+                    opcClient[i].Connect();
+                    deviceClients[i] = DeviceClient.CreateFromConnectionString(Resources.connectionString, TransportType.Mqtt);
+                    devices[i] = new VirtualDevice(deviceClients[i]);
+                    connectionTask[i] = deviceClients[i].OpenAsync();
+                }
+
+                await Task.WhenAll(connectionTask);
+                Console.WriteLine("Successfully connected :D");
+
+                while (true)
+                {
+                    Task[] tasks = new Task[machinesIdList.Count - 1];
+                    for (int i = 0; i < machinesIdList.Count - 1; i++)
+                    {
+                        tasks[i] = taskMachineMethod(machinesIdList[i + 1], opcClient[i], devices[i]);
+                    }
+                    await Task.WhenAll(tasks);
+                    await Task.Delay(5000);
+                }
+            }
+        }
+        catch (OpcException e)
+        {
+            Console.WriteLine("Successfully failed :( " + e.Message);
+        }
+
+        static void findMachinesId(OpcNodeInfo node, List<string> machineIdList, int level = 0)
+        {
+            if (level == 1)
+            {
+                machineIdList.Add(node.NodeId.ToString());
+            }
+            level++;
+            foreach (var childNode in node.Children())
+            {
+                findMachinesId(childNode, machineIdList, level);
+            }
+        }
+
+        static OpcReadNode[] readNode(string machineId)
+        {
+            OpcReadNode[] nodes = new OpcReadNode[]
+            {
+                new OpcReadNode(machineId+"/ProductionStatus"),
+                new OpcReadNode(machineId+"/ProductionRate"),
+                new OpcReadNode(machineId+"/WorkorderId"),
+                new OpcReadNode(machineId+"/Temperature"),
+                new OpcReadNode(machineId+"/GoodCount"),
+                new OpcReadNode(machineId+"/BadCount"),
+                new OpcReadNode(machineId+"/DeviceError"),
+            };
+            return nodes;
+        }
+
+        async Task taskMachineMethod(string machineId, OpcClient client, VirtualDevice device)
+        {
+            Console.WriteLine("Successfully connected with {0}", machineId);
+            OpcValue[] telemetryValues = new OpcValue[5];
+            //odczyt telemetrycznych danych
+
+            telemetryValues[0] = client.ReadNode(machineId + "/ProductionStatus");
+            telemetryValues[1] = client.ReadNode(machineId + "/WorkorderId");
+            telemetryValues[2] = client.ReadNode(machineId + "/GoodCount");
+            telemetryValues[3] = client.ReadNode(machineId + "/BadCount");
+            telemetryValues[4] = client.ReadNode(machineId + "/Temperature");
+
+            //test
+            await device.sendTelemetryValues(telemetryValues, machineId);
+        }
+
+    }
+
+    //Browse(node);
 }
