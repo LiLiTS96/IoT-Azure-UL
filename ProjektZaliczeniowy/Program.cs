@@ -1,68 +1,35 @@
 ﻿using AzureDeviceSdkDemo.Device;
 using Microsoft.Azure.Devices.Client;
+using Newtonsoft.Json;
 using Opc.UaFx;
 using Opc.UaFx.Client;
-using Org.BouncyCastle.Security;
 using ProjektZaliczeniowy.Properties;
-using System.Resources;
-using System.Runtime.Versioning;
-
 
 internal class Program 
 {
-
     private static async Task Main(string[] args)  
     {
-    //exception
-    //var client = new OpcClient("opc.tcp://localhost:4840/")
-    //client.Connect();
-    /*
-    OpcReadNode[] commands = new OpcReadNode[]
-    {
-        new OpcReadNode("ns=2;s=Device 1/ProductionStatus", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/ProductionStatus"),
-        new OpcReadNode("ns=2;s=Device 1/ProductionRate", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/ProductionRate"),
-        new OpcReadNode("ns=2;s=Device 1/WorkorderId", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/WorkorderId"),
-        new OpcReadNode("ns=2;s=Device 1/Temperature", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/Temperature"),
-        new OpcReadNode("ns=2;s=Device 1/GoodCount", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/GoodCount"),
-        new OpcReadNode("ns=2;s=Device 1/BadCount", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/BadCount"),
-        new OpcReadNode("ns=2;s=Device 1/DeviceError", OpcAttribute.DisplayName),
-        new OpcReadNode("ns=2;s=Device 1/DeviceError"),
-    };
-
-    IEnumerable<OpcValue> job = client.ReadNodes(commands);
-
-    foreach (var item in job)
-    {
-        Console.WriteLine(item.Value);
-    }
-    */
         try
         {
-            List<string> machinesIdList = new List<string>();
-
+            Dictionary<string,string> machinesId2TelemetryMap = new Dictionary<string, string>();
             using (var client = new OpcClient("opc.tcp://localhost:4840/"))
             {
                 client.Connect();
                 var node = client.BrowseNode(OpcObjectTypes.ObjectsFolder);
-                findMachinesId(node, machinesIdList);
-                client.Disconnect();
+                findMachinesId(node, machinesId2TelemetryMap);
+                //client.Disconnect();
 
                 using var deviceClient = DeviceClient.CreateFromConnectionString(Resources.connectionString, TransportType.Mqtt);
                 await deviceClient.OpenAsync();
                 var device = new VirtualDevice(deviceClient);
+                int machineIdListSize = machinesId2TelemetryMap.Count - 1;
 
-                Task[] connectionTask = new Task[machinesIdList.Count - 1];
-                VirtualDevice[] devices = new VirtualDevice[machinesIdList.Count - 1];
-                DeviceClient[] deviceClients = new DeviceClient[machinesIdList.Count - 1];
-                OpcClient[] opcClient = new OpcClient[machinesIdList.Count - 1];
+                Task[] connectionTask = new Task[machineIdListSize];
+                VirtualDevice[] devices = new VirtualDevice[machineIdListSize];
+                DeviceClient[] deviceClients = new DeviceClient[machineIdListSize];
+                OpcClient[] opcClient = new OpcClient[machineIdListSize];
 
-                for (int i = 0; i < machinesIdList.Count - 1; i++)
+                for (int i = 0; i < machineIdListSize; i++)
                 {
                     opcClient[i] = new OpcClient("opc.tcp://localhost:4840/");
                     opcClient[i].Connect();
@@ -72,16 +39,11 @@ internal class Program
                 }
 
                 await Task.WhenAll(connectionTask);
-                Console.WriteLine("Successfully connected :D");
-
+                Console.WriteLine("Successfully connected");
                 while (true)
                 {
-                    Task[] tasks = new Task[machinesIdList.Count - 1];
-                    for (int i = 0; i < machinesIdList.Count - 1; i++)
-                    {
-                        tasks[i] = taskMachineMethod(machinesIdList[i + 1], opcClient[i], devices[i]);
-                    }
-                    await Task.WhenAll(tasks);
+                    machinesTelemetryDataPrep(machinesId2TelemetryMap, client);
+                    await device.SendMessages(machinesId2TelemetryMap);
                     await Task.Delay(5000);
                 }
             }
@@ -91,16 +53,16 @@ internal class Program
             Console.WriteLine("Successfully failed :( " + e.Message);
         }
 
-        static void findMachinesId(OpcNodeInfo node, List<string> machineIdList, int level = 0)
+        static void findMachinesId(OpcNodeInfo node, Dictionary<string, string> machinesId2TelemetryMap, int level = 0)
         {
-            if (level == 1)
+            if (level == 1 && node.NodeId.ToString().Contains("Device"))
             {
-                machineIdList.Add(node.NodeId.ToString());
+                machinesId2TelemetryMap.Add(node.NodeId.ToString(),null);
             }
             level++;
             foreach (var childNode in node.Children())
             {
-                findMachinesId(childNode, machineIdList, level);
+                findMachinesId(childNode, machinesId2TelemetryMap, level);
             }
         }
 
@@ -135,7 +97,23 @@ internal class Program
             await device.sendTelemetryValues(telemetryValues, machineId);
         }
 
+        static void machinesTelemetryDataPrep(Dictionary<string, string> machinesId2TelemetryMap, OpcClient client)
+        {
+            foreach (KeyValuePair<string, string> entry in machinesId2TelemetryMap)
+            {
+                    var data = new
+                    {
+                        product_status = client.ReadNode(entry.Key + "/ProductionStatus").Value,
+                        workorder_id = client.ReadNode(entry.Key + "/WorkorderId").Value,
+                        good_count = client.ReadNode(entry.Key + "/GoodCount").Value,
+                        bad_count = client.ReadNode(entry.Key + "/BadCount").Value,
+                        temperature = client.ReadNode(entry.Key + "/Temperature").Value,
+                        time_stamp = DateTime.Now.ToLocalTime(),
+                    };
+                    var dataString = JsonConvert.SerializeObject(data);
+                    Console.WriteLine("maszyna "+ entry.Key);
+                    machinesId2TelemetryMap[entry.Key] = dataString;
+            }
+        }
     }
-
-    //Browse(node);
 }
