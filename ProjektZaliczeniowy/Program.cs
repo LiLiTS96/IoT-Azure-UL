@@ -49,18 +49,20 @@ internal class Program
                 using var deviceClient = DeviceClient.CreateFromConnectionString(Resources.connectionString, TransportType.Mqtt);
                 await deviceClient.OpenAsync();
                 var device = new VirtualDevice(deviceClient);
+                await device.InitializeHandlers(client);
+                //await device.UpdateTwinAsync();
                 Console.WriteLine("Successfully connected");
 
-                while(true)
+                foreach (MachineData entry in machineDataList)
+                {
+                    Console.WriteLine(entry.machineId);
+                }
+
+                while (true)
                 {
                     readNodes(machineDataList, client);
-                    foreach (MachineData entry in machineDataList)
-                    {
-                        Console.WriteLine(entry.machineId);
-                    }
                     await device.SendMessages(filterTelemetry2Send(machineDataList, LIST_TELEMETRY_PARAMS));
                     await Task.Delay(5000);
-                    break;
                 }
             }
         }
