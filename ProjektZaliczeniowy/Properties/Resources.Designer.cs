@@ -61,7 +61,7 @@ namespace ProjektZaliczeniowy.Properties {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to HostName=iot-dhyrenko-ul-standard.azure-devices.net;DeviceId=test_device;SharedAccessKey=PdV+mLP0qlN9hd+1yE9u37PPfByI+hSF4tNJn+6XlwI=.
+        ///   Looks up a localized string similar to HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=device;SharedAccessKey=d9o2aWgVFux/1jPokH3mCqGOdaUDDOhvBynmF/Gjt5w=.
         /// </summary>
         internal static string connectionString {
             get {

@@ -5,7 +5,7 @@ VisualStudioVersion = 17.3.32929.385
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ProjektZaliczeniowy", "ProjektZaliczeniowy\ProjektZaliczeniowy.csproj", "{D9FDD797-C54A-4ADA-B9F6-DD037C6D8080}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AzureDeviceSdkDemo.Device", "AzureDeviceSdkDemo.Device\AzureDeviceSdkDemo.Device.csproj", "{5F9F18F6-E649-4CC2-BA60-95FA8FA2D057}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AzureDeviceSdkDemo.Device", "AzureDeviceSdkDemo.Device\AzureDeviceSdkDemo.Device.csproj", "{5F9F18F6-E649-4CC2-BA60-95FA8FA2D057}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

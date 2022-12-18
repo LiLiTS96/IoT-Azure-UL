@@ -6,6 +6,8 @@ using Opc.UaFx;
 using Opc.UaFx.Client;
 using ProjektZaliczeniowy.Properties;
 using System.Diagnostics.Metrics;
+using Microsoft.Azure.Devices;
+using Microsoft.Rest;
 
 internal class Program 
 {
@@ -40,28 +42,40 @@ internal class Program
         try
         {
             List<MachineData> machineDataList = new List<MachineData>();
-            using (var client = new OpcClient("opc.tcp://localhost:4840/"))
+            using (var opcClient = new OpcClient("opc.tcp://localhost:4840/"))
             {
-                client.Connect();
-                var node = client.BrowseNode(OpcObjectTypes.ObjectsFolder);
+                opcClient.Connect();
+                var node = opcClient.BrowseNode(OpcObjectTypes.ObjectsFolder);
                 findMachinesId(node, machineDataList);
-
-                using var deviceClient = DeviceClient.CreateFromConnectionString(Resources.connectionString, TransportType.Mqtt);
-                await deviceClient.OpenAsync();
-                var device = new VirtualDevice(deviceClient);
-                await device.InitializeHandlers(client);
-                //await device.UpdateTwinAsync();
-                Console.WriteLine("Successfully connected");
-
-                foreach (MachineData entry in machineDataList)
+                List<string> deviceIds = new List<string>() { "device_1", "device_2", "device_3" };
+                Dictionary<VirtualDevice, MachineData> iotHubDevice2OpcMachineData = new Dictionary<VirtualDevice, MachineData>();
+                for(int i = 0; i < deviceIds.Count; i++)
                 {
-                    Console.WriteLine(entry.machineId);
+                    if (i < machineDataList.Count)
+                    {
+                        DeviceClient deviceClient = DeviceClient.CreateFromConnectionString(Resources.connectionString, deviceIds[i]);
+                        await deviceClient.OpenAsync();
+                        var device = new VirtualDevice(deviceClient, opcClient);
+                        await device.InitializeHandlers(machineDataList[i].machineId);
+                        iotHubDevice2OpcMachineData.Add(device, machineDataList[i]);
+                    }
+                    
+                }
+
+                foreach (KeyValuePair<VirtualDevice, MachineData> kvp in iotHubDevice2OpcMachineData)
+                {
+                    readNode(kvp.Value, opcClient);
+                    Console.WriteLine(kvp.Value.workorderId);
+                    await kvp.Key.UpdateTwinAsync(kvp.Value.deviceErrors, kvp.Value.productRate);
                 }
 
                 while (true)
                 {
-                    readNodes(machineDataList, client);
-                    await device.SendMessages(filterTelemetry2Send(machineDataList, LIST_TELEMETRY_PARAMS));
+                    foreach (KeyValuePair<VirtualDevice, MachineData> kvp in iotHubDevice2OpcMachineData)
+                    {
+                        readNode(kvp.Value, opcClient);
+                        await kvp.Key.SendMessages(filterTelemetry2Send(kvp.Value, LIST_TELEMETRY_PARAMS));
+                    }
                     await Task.Delay(5000);
                 }
             }
@@ -87,34 +101,26 @@ internal class Program
             }
         }
 
-        static void readNodes(List<MachineData> machineDataList, OpcClient client)
+        static void readNode(MachineData machineData, OpcClient client)
         {
-            foreach (MachineData machine in machineDataList)
-            {
-                machine.productStatus = (int)client.ReadNode(machine.machineId + NODE_PRODUCT_STATUS).Value;
-                machine.workorderId = (string)client.ReadNode(machine.machineId + NODE_WORKORDER_ID).Value;
-                machine.goodCount = (int)(long)client.ReadNode(machine.machineId + NODE_GOOD_COUNT).Value;
-                machine.badCount = (int)(long)client.ReadNode(machine.machineId + NODE_BAD_COUNT).Value;
-                machine.temperature = (double)client.ReadNode(machine.machineId + NODE_TEMPERATURE).Value;
-                machine.deviceError = (int)client.ReadNode(machine.machineId + NODE_DEVICE_ERROR).Value;
-                machine.productRate = (int)client.ReadNode(machine.machineId + NODE_PRODUCT_RATE).Value;
-                machine.readTimeStamp = DateTime.Now;
-            }
+            machineData.productStatus = (int)client.ReadNode(machineData.machineId + NODE_PRODUCT_STATUS).Value;
+            machineData.workorderId = (string)client.ReadNode(machineData.machineId + NODE_WORKORDER_ID).Value;
+            machineData.goodCount = (int)(long)client.ReadNode(machineData.machineId + NODE_GOOD_COUNT).Value;
+            machineData.badCount = (int)(long)client.ReadNode(machineData.machineId + NODE_BAD_COUNT).Value;
+            machineData.temperature = (double)client.ReadNode(machineData.machineId + NODE_TEMPERATURE).Value;
+            machineData.deviceErrors = (int)client.ReadNode(machineData.machineId + NODE_DEVICE_ERROR).Value;
+            machineData.productRate = (int)client.ReadNode(machineData.machineId + NODE_PRODUCT_RATE).Value;
+            machineData.readTimeStamp = DateTime.Now;
         }
 
-        static List<string> filterTelemetry2Send(List<MachineData> machineDataList, List<string> requiredParamsList)
+        static string filterTelemetry2Send(MachineData machineData, List<string> requiredParamsList)
         {
-            List<string> prepData = new List<string>();
-            foreach(MachineData machine in machineDataList)
+            string data = "{";
+            foreach (string param in requiredParamsList)
             {
-                string data = "{";
-                foreach (string param in requiredParamsList)
-                {
-                    machine.addValueAndParam(ref data,param);
-                }
-                prepData.Add(data.Remove(data.Length - 1, 1) + "}");
+                machineData.addValueAndParam(ref data,param);
             }
-            return prepData;
+            return (data.Remove(data.Length - 1, 1) + "}");
         }
     }
 
@@ -126,7 +132,7 @@ internal class Program
         public int goodCount { get; set; }
         public int badCount { get; set; }
         public double temperature { get; set; }
-        public int deviceError { get; set; }
+        public int deviceErrors { get; set; }
         public int productRate { get; set; }
         public DateTime readTimeStamp { get; set; }
 
@@ -146,7 +152,7 @@ internal class Program
             if (paramName == "temperature")
                 data += temperature.ToString().Replace(',','.');
             if (paramName == "device_error")
-                data += deviceError;
+                data += deviceErrors;
             if (paramName == "product_rate")
                 data += productRate;
             if (paramName == "read_time_stamp")

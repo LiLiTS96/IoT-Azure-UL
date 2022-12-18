@@ -118,6 +118,6 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="connectionString" xml:space="preserve">
-    <value>HostName=iot-dhyrenko-ul-standard.azure-devices.net;DeviceId=test_device;SharedAccessKey=PdV+mLP0qlN9hd+1yE9u37PPfByI+hSF4tNJn+6XlwI=</value>
+    <value>HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=device;SharedAccessKey=d9o2aWgVFux/1jPokH3mCqGOdaUDDOhvBynmF/Gjt5w=</value>
   </data>
 </root>
