@@ -22,13 +22,16 @@ namespace AzureDeviceSdkDemo.Device
         #region Sending Messages
         public async Task SendMessages(string data)
         {
-            Message eventMessage = new Message(Encoding.UTF8.GetBytes(data));
-            eventMessage.ContentType = MediaTypeNames.Application.Json;
-            eventMessage.ContentEncoding = "utf-8";
-            Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {data}");
+            if(data != null)
+            {
+                Message eventMessage = new Message(Encoding.UTF8.GetBytes(data));
+                eventMessage.ContentType = MediaTypeNames.Application.Json;
+                eventMessage.ContentEncoding = "utf-8";
+                Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {data}");
 
-            await client.SendEventAsync(eventMessage);
-            Console.WriteLine();
+                await client.SendEventAsync(eventMessage);
+                Console.WriteLine();
+            }
         }
         #endregion Sending Messages
         #region Receiving Messages
@@ -57,22 +60,33 @@ namespace AzureDeviceSdkDemo.Device
 
         #endregion Receiving Messages
         #region Device Twin
-        public async Task UpdateTwinAsync(int deviceError, int prodRate)
+        public async Task SetTwinAsync(int deviceError, int prodRate)
         {
             var twin = await client.GetTwinAsync();
-            Console.WriteLine($"\nInitial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
+            //Console.WriteLine($"\nInitial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
             Console.WriteLine();
 
             var reportedProperties = new TwinCollection();
             reportedProperties["DeviceErrors"] = deviceError;
             reportedProperties["ProductionRate"] = prodRate;
-            reportedProperties["LastMaintenanceDate"] = null;
-            reportedProperties["LastErrorDate"] = null;
             if (deviceError != 0)
             {
                 reportedProperties["LastErrorDate"] = DateTime.Now;
             }
             
+            await client.UpdateReportedPropertiesAsync(reportedProperties);
+        }
+
+        public async Task UpdateTwinAsync(int deviceError)
+        {
+            var twin = await client.GetTwinAsync();
+            Console.WriteLine($"\nUpdate twin.");
+            Console.WriteLine();
+
+            var reportedProperties = new TwinCollection();
+            reportedProperties["DeviceErrors"] = deviceError;
+            reportedProperties["LastErrorDate"] = DateTime.Now;
+
             await client.UpdateReportedPropertiesAsync(reportedProperties);
         }
 
@@ -130,6 +144,16 @@ namespace AzureDeviceSdkDemo.Device
         private async Task<MethodResponse> MaintenanceDoneHandler(MethodRequest methodRequest, object userContext)
         {
             Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
+
+            var twin = await client.GetTwinAsync();
+            Console.WriteLine($"\nTwin Maintenance Done.");
+            Console.WriteLine();
+
+            var reportedProperties = new TwinCollection();
+            reportedProperties["LastMainTenanceDone"] = DateTime.Now;
+
+            await client.UpdateReportedPropertiesAsync(reportedProperties);
+
             return new MethodResponse(0);
         }
 

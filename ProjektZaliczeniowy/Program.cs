@@ -8,6 +8,8 @@ using ProjektZaliczeniowy.Properties;
 using System.Diagnostics.Metrics;
 using Microsoft.Azure.Devices;
 using Microsoft.Rest;
+using Microsoft.Azure.EventHubs;
+using System.Text;
 
 internal class Program 
 {
@@ -42,12 +44,28 @@ internal class Program
         try
         {
             List<MachineData> machineDataList = new List<MachineData>();
+            int errorCodeBefore = 0;
             using (var opcClient = new OpcClient("opc.tcp://localhost:4840/"))
             {
                 opcClient.Connect();
                 var node = opcClient.BrowseNode(OpcObjectTypes.ObjectsFolder);
                 findMachinesId(node, machineDataList);
-                List<string> deviceIds = new List<string>() { "device_1", "device_2", "device_3" };
+
+                string cs = "HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=yYImzJ2fC/yqrln2IjEL5/37/e9W7EIORtnNzaljE+k=";
+                RegistryManager registryManager = RegistryManager.CreateFromConnectionString(cs);
+
+                IEnumerable<Device> devices = await registryManager.GetDevicesAsync(100);
+                List<string> deviceIds = new List<string>();
+                foreach (Device device in devices)
+                {
+                    if (device.Id.Contains("device_"))
+                    {
+                        deviceIds.Add(device.Id);
+                    }
+                }
+
+
+                //List<string> deviceIds = new List<string>() { "device_1", "device_2", "device_3", "device_4", "device_5" };
                 Dictionary<VirtualDevice, MachineData> iotHubDevice2OpcMachineData = new Dictionary<VirtualDevice, MachineData>();
                 for(int i = 0; i < deviceIds.Count; i++)
                 {
@@ -66,17 +84,32 @@ internal class Program
                 {
                     readNode(kvp.Value, opcClient);
                     Console.WriteLine(kvp.Value.workorderId);
-                    await kvp.Key.UpdateTwinAsync(kvp.Value.deviceErrors, kvp.Value.productRate);
+                    await kvp.Key.SetTwinAsync(kvp.Value.deviceErrors, kvp.Value.productRate);
+                    if (kvp.Value.deviceErrors > 0)
+                    {
+                        Console.WriteLine("REPOTR ERROR");
+                        reportNewError(kvp.Key, kvp.Value.deviceErrors, kvp.Value.machineId);
+                    }
                 }
 
                 while (true)
                 {
                     foreach (KeyValuePair<VirtualDevice, MachineData> kvp in iotHubDevice2OpcMachineData)
                     {
+                        errorCodeBefore = kvp.Value.deviceErrors;
                         readNode(kvp.Value, opcClient);
-                        await kvp.Key.SendMessages(filterTelemetry2Send(kvp.Value, LIST_TELEMETRY_PARAMS));
+                        if(kvp.Value.productStatus == 1)
+                        {
+                            await kvp.Key.SendMessages(filterTelemetry2Send(kvp.Value, LIST_TELEMETRY_PARAMS));
+                            if (kvp.Value.deviceErrors > 0 && errorCodeBefore != kvp.Value.deviceErrors)
+                            {
+                                Console.WriteLine("REPOTR ERROR");
+                                reportNewError(kvp.Key, kvp.Value.deviceErrors, kvp.Value.machineId);
+                            }
+                            
+                        }
                     }
-                    await Task.Delay(5000);
+                    await Task.Delay(10000);
                 }
             }
         }
@@ -121,6 +154,46 @@ internal class Program
                 machineData.addValueAndParam(ref data,param);
             }
             return (data.Remove(data.Length - 1, 1) + "}");
+        }
+
+        static async void reportNewError(VirtualDevice device, int errorCode, string machineId)
+        {
+            /*EventHubClient eventHubClient = EventHubClient.CreateFromConnectionString("Endpoint=sb://event-hub-dhyrenko.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=JUaIUP/RW1/WVzDQMU+vLO4MkxPQLRogy2beILd3wQo=");
+
+            EventData eventData = new EventData(Encoding.UTF8.GetBytes(parseErrors(errorCode, machineId)));
+            Console.WriteLine("SEND EVENT HUB: " + eventData.ToString());
+            await eventHubClient.SendAsync(eventData);*/
+            await device.SendMessages(parseErrors(errorCode, machineId));
+            await device.UpdateTwinAsync(errorCode);
+        }
+
+        static string parseErrors(int errorCode, string machineId)
+        {
+            if (errorCode < 1) return null;
+            string binaryString = Convert.ToString(errorCode, 2).PadLeft(4, '0');
+            char on = '1';
+            string ret = "{";
+            ret += "\"machine_id\":\"" + machineId + "\",";
+            ret += "\"isError\":true,";
+
+            if (binaryString[0] == on)
+            {
+                ret += "\"unknown\":true,";
+            }
+            if(binaryString[1] == on)
+            {
+                ret += "\"sensor_failure\":true,";
+            }
+            if(binaryString[2] == on)
+            {
+                ret += "\"power_failure\":true,";
+            }
+            if (binaryString[3] == on)
+            {
+                ret += "\"emergency_stop\":true,";
+            }
+
+            return (ret.Remove(ret.Length - 1, 1) + "}");
         }
     }
 
