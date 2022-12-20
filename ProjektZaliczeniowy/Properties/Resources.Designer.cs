@@ -63,9 +63,36 @@ namespace ProjektZaliczeniowy.Properties {
         /// <summary>
         ///   Looks up a localized string similar to HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=device;SharedAccessKey=d9o2aWgVFux/1jPokH3mCqGOdaUDDOhvBynmF/Gjt5w=.
         /// </summary>
-        internal static string connectionString {
+        internal static string deviceConnectionString {
             get {
-                return ResourceManager.GetString("connectionString", resourceCulture);
+                return ResourceManager.GetString("deviceConnectionString", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to 100.
+        /// </summary>
+        internal static string iotDevicesMaxCount {
+            get {
+                return ResourceManager.GetString("iotDevicesMaxCount", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to opc.tcp://localhost:4840/.
+        /// </summary>
+        internal static string opcClientServer {
+            get {
+                return ResourceManager.GetString("opcClientServer", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=yYImzJ2fC/yqrln2IjEL5/37/e9W7EIORtnNzaljE+k=.
+        /// </summary>
+        internal static string ownerConnectionString {
+            get {
+                return ResourceManager.GetString("ownerConnectionString", resourceCulture);
             }
         }
     }

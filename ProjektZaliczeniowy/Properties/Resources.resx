@@ -117,7 +117,16 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
-  <data name="connectionString" xml:space="preserve">
+  <data name="deviceConnectionString" xml:space="preserve">
     <value>HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=device;SharedAccessKey=d9o2aWgVFux/1jPokH3mCqGOdaUDDOhvBynmF/Gjt5w=</value>
+  </data>
+  <data name="iotDevicesMaxCount" xml:space="preserve">
+    <value>100</value>
+  </data>
+  <data name="opcClientServer" xml:space="preserve">
+    <value>opc.tcp://localhost:4840/</value>
+  </data>
+  <data name="ownerConnectionString" xml:space="preserve">
+    <value>HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=yYImzJ2fC/yqrln2IjEL5/37/e9W7EIORtnNzaljE+k=</value>
   </data>
 </root>

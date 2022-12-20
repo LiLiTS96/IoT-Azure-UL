@@ -1,15 +1,9 @@
 ﻿using AzureDeviceSdkDemo.Device;
-using Microsoft.Azure.Amqp.Framing;
 using Microsoft.Azure.Devices.Client;
-using Newtonsoft.Json;
 using Opc.UaFx;
 using Opc.UaFx.Client;
 using ProjektZaliczeniowy.Properties;
-using System.Diagnostics.Metrics;
 using Microsoft.Azure.Devices;
-using Microsoft.Rest;
-using Microsoft.Azure.EventHubs;
-using System.Text;
 
 internal class Program 
 {
@@ -26,12 +20,15 @@ internal class Program
     private static string PARAM_GOOD_COUNT = "good_count";
     private static string PARAM_BAD_COUNT = "bad_count";
     private static string PARAM_TEMPERATURE = "temperature";
+    private static string PARAM_IOT_HUB_DEVICE_ID = "deviceId";
     private static string PARAM_DEVICE_ERROR = "device_error";
     private static string PARAM_PRODUCT_RATE = "product_rate";
     private static string STR_DEVICE = "Device";
+    private static string STR_IOT_DEVICE_TEMP = "device_";
     private static List<string> LIST_TELEMETRY_PARAMS = new List<string>
     {
         PARAM_MACHINE_ID,
+        PARAM_IOT_HUB_DEVICE_ID,
         PARAM_PRODUCT_STATUS,
         PARAM_WORKORDER_ID,
         PARAM_GOOD_COUNT,
@@ -39,59 +36,62 @@ internal class Program
         PARAM_TEMPERATURE
     };
 
+    [Obsolete]
     private static async Task Main(string[] args)  
     {
         try
         {
             List<MachineData> machineDataList = new List<MachineData>();
             int errorCodeBefore = 0;
-            using (var opcClient = new OpcClient("opc.tcp://localhost:4840/"))
+            using (var opcClient = new OpcClient(Resources.opcClientServer))
             {
+                List<string> deviceIds = new List<string>();
+
+                //Opc client connection and nodes reading
                 opcClient.Connect();
                 var node = opcClient.BrowseNode(OpcObjectTypes.ObjectsFolder);
                 findMachinesId(node, machineDataList);
 
-                string cs = "HostName=iot-dhyrenko-ul-standard.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=yYImzJ2fC/yqrln2IjEL5/37/e9W7EIORtnNzaljE+k=";
-                RegistryManager registryManager = RegistryManager.CreateFromConnectionString(cs);
-
-                IEnumerable<Device> devices = await registryManager.GetDevicesAsync(100);
-                List<string> deviceIds = new List<string>();
+                //Read the devices available for connection in the IoT Hub
+                RegistryManager registryManager = RegistryManager.CreateFromConnectionString(Resources.ownerConnectionString);
+                IEnumerable<Device> devices = await registryManager.GetDevicesAsync(int.Parse(Resources.iotDevicesMaxCount));
                 foreach (Device device in devices)
                 {
-                    if (device.Id.Contains("device_"))
+                    if (device.Id.Contains(STR_IOT_DEVICE_TEMP))
                     {
                         deviceIds.Add(device.Id);
                     }
                 }
 
-
-                //List<string> deviceIds = new List<string>() { "device_1", "device_2", "device_3", "device_4", "device_5" };
+                //Сonnecting devices on the Opc server and in the IoT Hub
                 Dictionary<VirtualDevice, MachineData> iotHubDevice2OpcMachineData = new Dictionary<VirtualDevice, MachineData>();
                 for(int i = 0; i < deviceIds.Count; i++)
                 {
                     if (i < machineDataList.Count)
                     {
-                        DeviceClient deviceClient = DeviceClient.CreateFromConnectionString(Resources.connectionString, deviceIds[i]);
+                        DeviceClient deviceClient = DeviceClient.CreateFromConnectionString(Resources.deviceConnectionString, deviceIds[i]);
                         await deviceClient.OpenAsync();
                         var device = new VirtualDevice(deviceClient, opcClient);
                         await device.InitializeHandlers(machineDataList[i].machineId);
                         iotHubDevice2OpcMachineData.Add(device, machineDataList[i]);
+                        machineDataList[i].iotHubDeviceId = deviceIds[i];
                     }
                     
                 }
 
+                //Read data from Opc Client Nodes and Set Device Twins
                 foreach (KeyValuePair<VirtualDevice, MachineData> kvp in iotHubDevice2OpcMachineData)
                 {
                     readNode(kvp.Value, opcClient);
-                    Console.WriteLine(kvp.Value.workorderId);
+                    Console.WriteLine($"{DateTime.Now.ToLocalTime()}> Program.Main()> Connected device: {kvp.Value.workorderId}");
                     await kvp.Key.SetTwinAsync(kvp.Value.deviceErrors, kvp.Value.productRate);
                     if (kvp.Value.deviceErrors > 0)
                     {
-                        Console.WriteLine("REPOTR ERROR");
-                        reportNewError(kvp.Key, kvp.Value.deviceErrors, kvp.Value.machineId);
+                        reportNewError(kvp.Key, kvp.Value.deviceErrors, kvp.Value.machineId, kvp.Value.iotHubDeviceId);
                     }
                 }
 
+                //Reading Data from Opc client every 5 sec
                 while (true)
                 {
                     foreach (KeyValuePair<VirtualDevice, MachineData> kvp in iotHubDevice2OpcMachineData)
@@ -103,19 +103,18 @@ internal class Program
                             await kvp.Key.SendMessages(filterTelemetry2Send(kvp.Value, LIST_TELEMETRY_PARAMS));
                             if (kvp.Value.deviceErrors > 0 && errorCodeBefore != kvp.Value.deviceErrors)
                             {
-                                Console.WriteLine("REPOTR ERROR");
-                                reportNewError(kvp.Key, kvp.Value.deviceErrors, kvp.Value.machineId);
+                                reportNewError(kvp.Key, kvp.Value.deviceErrors, kvp.Value.machineId, kvp.Value.iotHubDeviceId);
                             }
                             
                         }
                     }
-                    await Task.Delay(10000);
+                    await Task.Delay(5000);
                 }
             }
         }
         catch (OpcException e)
         {
-            Console.WriteLine("Connection failed: " + e.Message);
+            Console.WriteLine($"{DateTime.Now.ToLocalTime()}> Program.Main()> Connection failed: {e.Message}");
         }
 
         static void findMachinesId(OpcNodeInfo node, List<MachineData> machineDataList, int level = 0)
@@ -151,29 +150,25 @@ internal class Program
             string data = "{";
             foreach (string param in requiredParamsList)
             {
-                machineData.addValueAndParam(ref data,param);
+                machineData.addParamAndValue2Json(ref data,param);
             }
             return (data.Remove(data.Length - 1, 1) + "}");
         }
 
-        static async void reportNewError(VirtualDevice device, int errorCode, string machineId)
+        static async void reportNewError(VirtualDevice device, int errorCode, string machineId, string deviceId)
         {
-            /*EventHubClient eventHubClient = EventHubClient.CreateFromConnectionString("Endpoint=sb://event-hub-dhyrenko.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=JUaIUP/RW1/WVzDQMU+vLO4MkxPQLRogy2beILd3wQo=");
-
-            EventData eventData = new EventData(Encoding.UTF8.GetBytes(parseErrors(errorCode, machineId)));
-            Console.WriteLine("SEND EVENT HUB: " + eventData.ToString());
-            await eventHubClient.SendAsync(eventData);*/
-            await device.SendMessages(parseErrors(errorCode, machineId));
+            await device.SendMessages(prepareErrorsJson(errorCode, machineId, deviceId));
             await device.UpdateTwinAsync(errorCode);
         }
 
-        static string parseErrors(int errorCode, string machineId)
+        static string prepareErrorsJson(int errorCode, string machineId, string deviceId)
         {
             if (errorCode < 1) return null;
             string binaryString = Convert.ToString(errorCode, 2).PadLeft(4, '0');
             char on = '1';
             string ret = "{";
             ret += "\"machine_id\":\"" + machineId + "\",";
+            ret += "\"deviceId\":\"" + deviceId + "\",";
             ret += "\"isError\":true,";
 
             if (binaryString[0] == on)
@@ -199,6 +194,7 @@ internal class Program
 
     public class MachineData
     {
+        public string iotHubDeviceId { get; set; }
         public string machineId { get; set; }
         public int productStatus { get; set; }
         public string workorderId { get; set; }
@@ -209,7 +205,7 @@ internal class Program
         public int productRate { get; set; }
         public DateTime readTimeStamp { get; set; }
 
-        public void addValueAndParam(ref string data, string paramName)
+        public void addParamAndValue2Json(ref string data, string paramName)
         {
             data += "\"" + paramName + "\":";
             if (paramName == "machine_id")
@@ -230,6 +226,8 @@ internal class Program
                 data += productRate;
             if (paramName == "read_time_stamp")
                 data += "\"" + readTimeStamp + "\"";
+            if (paramName == "deviceId")
+                data += "\"" + iotHubDeviceId + "\"";
             data += ",";
         }
     }

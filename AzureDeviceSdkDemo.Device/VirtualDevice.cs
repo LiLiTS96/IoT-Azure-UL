@@ -27,7 +27,7 @@ namespace AzureDeviceSdkDemo.Device
                 Message eventMessage = new Message(Encoding.UTF8.GetBytes(data));
                 eventMessage.ContentType = MediaTypeNames.Application.Json;
                 eventMessage.ContentEncoding = "utf-8";
-                Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> Sending message: {data}");
+                Console.WriteLine($"\t{DateTime.Now.ToLocalTime()}> D2C Sending message: {data}");
 
                 await client.SendEventAsync(eventMessage);
                 Console.WriteLine();
@@ -63,7 +63,6 @@ namespace AzureDeviceSdkDemo.Device
         public async Task SetTwinAsync(int deviceError, int prodRate)
         {
             var twin = await client.GetTwinAsync();
-            //Console.WriteLine($"\nInitial twin value received: \n{JsonConvert.SerializeObject(twin, Formatting.Indented)}");
             Console.WriteLine();
 
             var reportedProperties = new TwinCollection();
@@ -75,12 +74,14 @@ namespace AzureDeviceSdkDemo.Device
             }
             
             await client.UpdateReportedPropertiesAsync(reportedProperties);
+            Console.WriteLine($"{DateTime.Now}> Device Twin value was set.");
+
         }
 
         public async Task UpdateTwinAsync(int deviceError)
         {
             var twin = await client.GetTwinAsync();
-            Console.WriteLine($"\nUpdate twin.");
+            Console.WriteLine($"{DateTime.Now}> Device Twin value was update.");
             Console.WriteLine();
 
             var reportedProperties = new TwinCollection();
@@ -92,14 +93,13 @@ namespace AzureDeviceSdkDemo.Device
 
         private async Task OnDesiredPropertyChanged(TwinCollection desiredProperties, object userContext)
         {
-            //Console.WriteLine($"\tDesired property change:\n\t{JsonConvert.SerializeObject(desiredProperties)}");
+            Console.WriteLine($"\t{DateTime.Now}> Device Twin. Desired property change:\n\t{JsonConvert.SerializeObject(desiredProperties)}");
             string nodeId = (string)userContext;
             int newProdRate = desiredProperties["ProductionRate"];
             string node = nodeId + "/ProductionRate";
 
             OpcStatus result = opcClient.WriteNode(node, newProdRate);
-            Console.WriteLine(result.ToString());
-            //Console.WriteLine("\tSending current time as reported property");
+            Console.WriteLine($"\t{DateTime.Now}> opcClient.WriteNode is result good: " + result.IsGood.ToString());
             TwinCollection reportedProperties = new TwinCollection();
             reportedProperties["DateTimeLastDesiredPropertyChangeReceived"] = DateTime.Now;
             reportedProperties["ProductionRate"] = desiredProperties["ProductionRate"];
@@ -111,7 +111,7 @@ namespace AzureDeviceSdkDemo.Device
 
         private async Task<MethodResponse> EmergencyStopHandler(MethodRequest methodRequest, object userContext)
         {
-            Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
+            Console.WriteLine($"\t{DateTime.Now}> METHOD EXECUTED: {methodRequest.Name}");
             string nodeId = (string)userContext;
             object[] result = opcClient.CallMethod(
                     nodeId,
@@ -122,7 +122,7 @@ namespace AzureDeviceSdkDemo.Device
 
         private async Task<MethodResponse> ResetErrorStatusHandler(MethodRequest methodRequest, object userContext)
         {
-            Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
+            Console.WriteLine($"\t{DateTime.Now}> METHOD EXECUTED: {methodRequest.Name}");
             string nodeId = (string)userContext;
             object[] result = opcClient.CallMethod(
                     nodeId,
@@ -134,32 +134,37 @@ namespace AzureDeviceSdkDemo.Device
         private async Task<MethodResponse> DecreaseProductRateHandler(MethodRequest methodRequest, object userContext)
         {
             string productionRate = "/ProductionRate";
-            Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
+            string deviceError = "/DeviceError";
+            Console.WriteLine($"\t{DateTime.Now}> METHOD EXECUTED: {methodRequest.Name}");
             string nodeId = (string)userContext;
-            OpcStatus result = opcClient.WriteNode(nodeId + productionRate, (int)opcClient.ReadNode(nodeId + productionRate).Value - 10);
+            int rate = (int)opcClient.ReadNode(nodeId + productionRate).Value;
+            int error = (int)opcClient.ReadNode(nodeId + deviceError).Value;
+            OpcStatus result = opcClient.WriteNode(nodeId + productionRate, rate - 10);
             Console.WriteLine(result.ToString());
+            await SetTwinAsync(error, rate - 10);
             return new MethodResponse(0);
         }
 
         private async Task<MethodResponse> MaintenanceDoneHandler(MethodRequest methodRequest, object userContext)
         {
-            Console.WriteLine($"\tMETHOD EXECUTED: {methodRequest.Name}");
+            Console.WriteLine($"\t{DateTime.Now}> METHOD EXECUTED: {methodRequest.Name}");
 
             var twin = await client.GetTwinAsync();
-            Console.WriteLine($"\nTwin Maintenance Done.");
-            Console.WriteLine();
-
+            
             var reportedProperties = new TwinCollection();
             reportedProperties["LastMainTenanceDone"] = DateTime.Now;
 
             await client.UpdateReportedPropertiesAsync(reportedProperties);
+
+            Console.WriteLine($"\n{DateTime.Now}> Device Twin Maintenance Done.");
+            Console.WriteLine();
 
             return new MethodResponse(0);
         }
 
         private static async Task<MethodResponse> DefaultServiceHandler(MethodRequest methodRequest, object userContext)
         {
-            Console.WriteLine($"\tMETHOD NOT EXIST: {methodRequest.Name}");
+            Console.WriteLine($"\t{DateTime.Now}> METHOD NOT EXIST: {methodRequest.Name}");
             await Task.Delay(1000);
             return new MethodResponse(0);
         }
