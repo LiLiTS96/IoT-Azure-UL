@@ -1,5 +1,7 @@
 # ProjektZaliczeniowy
 
+Project Documentation: Documentation.pdf
+
 Configuration:
 
     ProjektZaliczeniowy/Resources.resx
